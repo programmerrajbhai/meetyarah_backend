@@ -1,11 +1,15 @@
 <?php
+// ডিবাগিং এর জন্য এরর রিপোর্টিং অন করা হলো (ডেভেলপমেন্ট শেষে বন্ধ করবেন)
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
 function get_authenticated_user_id($conn) {
     $auth_header = null;
 
-    // ১. সরাসরি Apache Request Headers চেক করি
+    // ১. হেডার চেক
     if (function_exists('getallheaders')) {
         $headers = getallheaders();
-        // ছোট হাতের 'authorization' বা বড় হাতের 'Authorization' দুটোই চেক করি
         if (isset($headers['Authorization'])) {
             $auth_header = $headers['Authorization'];
         } elseif (isset($headers['authorization'])) {
@@ -13,34 +17,43 @@ function get_authenticated_user_id($conn) {
         }
     }
 
-    // ২. যদি না পাই, তবে SERVER ভেরিয়েবল চেক করি (সাধারণত .htaccess থাকলে এখানে আসে)
+    // ২. সার্ভার ভেরিয়েবল চেক
     if (!$auth_header && isset($_SERVER['HTTP_AUTHORIZATION'])) {
         $auth_header = $_SERVER['HTTP_AUTHORIZATION'];
     }
-
-    // ৩. কিছু সার্ভারে এটি REDIRECT_ প্রিফিক্স সহ আসে
     if (!$auth_header && isset($_SERVER['REDIRECT_HTTP_AUTHORIZATION'])) {
         $auth_header = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'];
     }
 
-    // --- টোকেন পাওয়া না গেলে এরর ---
+    // ৩. টোকেন মিসিং চেক
     if (!$auth_header) {
         http_response_code(401); 
         echo json_encode(['status' => 'error', 'message' => 'Authorization header missing.']);
         exit();
     }
-    
-    // ৪. টোকেন ফরম্যাট চেক (Bearer <token>)
-    if (!preg_match('/Bearer\s(\S+)/', $auth_header, $matches)) {
-        http_response_code(401); 
-        echo json_encode(['status' => 'error', 'message' => 'Invalid token format.']);
+
+    // ৪. টোকেন এক্সট্রাক্ট (Flexible Logic)
+    $token = trim($auth_header);
+    if (preg_match('/Bearer\s+(\S+)/i', $token, $matches)) {
+        $token = $matches[1];
+    }
+
+    // ৫. ডাটাবেস চেক (এখানেই ৫০০ এরর হচ্ছে সম্ভবত)
+    // আগে চেক করি users টেবিল বা auth_token কলাম ঠিক আছে কি না
+    $sql = "SELECT user_id FROM users WHERE auth_token = ?";
+    $stmt = $conn->prepare($sql);
+
+    // যদি কুয়েরি ভুল হয় (যেমন টেবিল নেই), তবে এরর দেখাবে
+    if (!$stmt) {
+        http_response_code(500);
+        echo json_encode([
+            'status' => 'error', 
+            'message' => 'Database Query Failed! Check table/column name.',
+            'debug_error' => $conn->error // আসল এররটা এখানে দেখা যাবে
+        ]);
         exit();
     }
-    
-    $token = $matches[1];
 
-    // ৫. ডাটাবেস চেক
-    $stmt = $conn->prepare("SELECT user_id FROM users WHERE auth_token = ?");
     $stmt->bind_param("s", $token);
     $stmt->execute();
     $result = $stmt->get_result();
@@ -50,7 +63,7 @@ function get_authenticated_user_id($conn) {
         return (int)$user['user_id']; 
     } else {
         http_response_code(401); 
-        echo json_encode(['status' => 'error', 'message' => 'Unauthorized: Invalid token.']);
+        echo json_encode(['status' => 'error', 'message' => 'Unauthorized: Invalid token or User not found.']);
         exit(); 
     }
 }

@@ -12,20 +12,29 @@ if (isset($_GET['user_id'])) {
 
 $response = array();
 
-// ২. SQL Query (এখানে লাইক এবং কমেন্ট সরাসরি টেবিল থেকে গুনে আনা হচ্ছে)
+// ২. ডাইনামিক ইমেজ বেস URL তৈরি (এটি অটোমেটিক http/https এবং IP/Domain ধরে নিবে)
+$protocol = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http");
+$host = $_SERVER['HTTP_HOST'];
+// বর্তমান ফোল্ডার (api) থেকে uploads ফোল্ডারের পাথ
+$script_dir = dirname($_SERVER['PHP_SELF']);
+// স্লাশ হ্যান্ডলিং (যাতে ডাবল স্লাশ না হয়)
+$script_dir = rtrim($script_dir, '/');
+$base_image_url = "$protocol://$host$script_dir/uploads/";
+
+// ৩. SQL Query
 $sql = "SELECT 
             posts.*, 
             users.username, 
             users.full_name, 
             users.profile_picture_url,
             
-            -- ১. ইউজার লাইক দিয়েছে কি না? (1 = Yes, 0 = No)
+            -- লাইক দিয়েছে কি না?
             (SELECT COUNT(*) FROM likes WHERE likes.post_id = posts.post_id AND likes.user_id = $current_user_id) as is_liked,
             
-            -- ২. মোট লাইক সংখ্যা (সরাসরি likes টেবিল থেকে গণনা)
+            -- মোট লাইক
             (SELECT COUNT(*) FROM likes WHERE likes.post_id = posts.post_id) as total_likes,
             
-            -- ৩. মোট কমেন্ট সংখ্যা (সরাসরি comments টেবিল থেকে গণনা)
+            -- মোট কমেন্ট
             (SELECT COUNT(*) FROM comments WHERE comments.post_id = posts.post_id) as total_comments
 
         FROM posts 
@@ -39,13 +48,27 @@ if ($result && $result->num_rows > 0) {
     $response['posts'] = array();
 
     while ($row = $result->fetch_assoc()) {
-        // is_liked কনভার্ট করা
+        // ১. is_liked বুলিয়ান করা
         $row['is_liked'] = ($row['is_liked'] > 0) ? true : false;
         
-        // মোট লাইক এবং কমেন্ট সংখ্যা JSON এ সেট করা
-        // লক্ষ্য করুন: আমরা 'like_count' এবং 'comment_count' নামেই অ্যাপে পাঠাচ্ছি
+        // ২. সংখ্যা ইন্টিজারে নেওয়া
         $row['like_count'] = intval($row['total_likes']);
         $row['comment_count'] = intval($row['total_comments']);
+        
+        // ৩. ইমেজের পূর্ণাঙ্গ লিংক তৈরি করা (সবচেয়ে গুরুত্বপূর্ণ ফিক্স)
+        if (!empty($row['image_url'])) {
+            // যদি ডাটাবেসে শুধু নাম থাকে (যেমন: post.jpg), তবে সামনে পাথ যোগ হবে
+            if (!filter_var($row['image_url'], FILTER_VALIDATE_URL)) {
+                $row['image_url'] = $base_image_url . $row['image_url'];
+            }
+        }
+        
+        // ৪. প্রোফাইল পিকচারের জন্যও একই কাজ করা উচিত (যদি সেখানেও শুধু নাম থাকে)
+        if (!empty($row['profile_picture_url'])) {
+             if (!filter_var($row['profile_picture_url'], FILTER_VALIDATE_URL)) {
+                $row['profile_picture_url'] = $base_image_url . $row['profile_picture_url'];
+            }
+        }
         
         array_push($response['posts'], $row);
     }

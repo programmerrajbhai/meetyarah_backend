@@ -9,6 +9,17 @@ $response = array();
 // ছবি সেভ করার ফোল্ডারের নাম
 $upload_dir = "uploads/";
 
+
+$uploadFileDir = './uploads/';
+if (!is_dir($uploadFileDir)) {
+    // ০৭৭৭ পারমিশন দিয়ে ফোল্ডার তৈরি করবে
+    mkdir($uploadFileDir, 0777, true); 
+} else {
+    // ফোল্ডার থাকলে পারমিশন আপডেট করবে
+    chmod($uploadFileDir, 0777); 
+}
+
+
 // ফোল্ডার না থাকলে তৈরি করে নেবে
 if (!file_exists($upload_dir)) {
     mkdir($upload_dir, 0777, true);
