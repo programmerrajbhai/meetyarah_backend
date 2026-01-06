@@ -4,78 +4,94 @@ include 'db_connect.php';
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=UTF-8");
 
-// ১. অ্যাপ থেকে আসা user_id রিসিভ করা
-$current_user_id = 0;
-if (isset($_GET['user_id'])) {
-    $current_user_id = intval($_GET['user_id']);
-}
+// ১. ইনপুট নেওয়া (User ID এবং Pagination)
+$current_user_id = isset($_GET['user_id']) ? intval($_GET['user_id']) : 0;
+$page = isset($_GET['page']) ? intval($_GET['page']) : 1;
+$limit = isset($_GET['limit']) ? intval($_GET['limit']) : 10; // প্রতি পেজে ১০টি পোস্ট
+
+// পেজ ১ এর নিচে হতে পারবে না
+if ($page < 1) $page = 1;
+
+// OFFSET ক্যালকুলেশন
+$offset = ($page - 1) * $limit;
 
 $response = array();
 
-// ২. ডাইনামিক ইমেজ বেস URL তৈরি (এটি অটোমেটিক http/https এবং IP/Domain ধরে নিবে)
+// ২. ডাইনামিক ইমেজ বেস URL তৈরি
 $protocol = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http");
 $host = $_SERVER['HTTP_HOST'];
-// বর্তমান ফোল্ডার (api) থেকে uploads ফোল্ডারের পাথ
 $script_dir = dirname($_SERVER['PHP_SELF']);
-// স্লাশ হ্যান্ডলিং (যাতে ডাবল স্লাশ না হয়)
 $script_dir = rtrim($script_dir, '/');
 $base_image_url = "$protocol://$host$script_dir/uploads/";
 
-// ৩. SQL Query
+// ৩. অপটিমাইজড SQL Query (LIMIT ও OFFSET সহ)
 $sql = "SELECT 
-            posts.*, 
-            users.username, 
-            users.full_name, 
-            users.profile_picture_url,
+            posts.post_id, posts.user_id, posts.post_content, posts.image_url, posts.created_at,
+            users.username, users.full_name, users.profile_picture_url,
             
-            -- লাইক দিয়েছে কি না?
+            -- লাইক দিয়েছে কি না?
             (SELECT COUNT(*) FROM likes WHERE likes.post_id = posts.post_id AND likes.user_id = $current_user_id) as is_liked,
-            
-            -- মোট লাইক
+            (SELECT COUNT(*) FROM likes WHERE likes.post_id = posts.post_id AND likes.user_id = ?) as is_liked,
             (SELECT COUNT(*) FROM likes WHERE likes.post_id = posts.post_id) as total_likes,
-            
-            -- মোট কমেন্ট
             (SELECT COUNT(*) FROM comments WHERE comments.post_id = posts.post_id) as total_comments
 
         FROM posts 
         JOIN users ON posts.user_id = users.user_id 
-        ORDER BY posts.created_at DESC";
+        ORDER BY posts.created_at DESC
+        LIMIT ? OFFSET ?";
 
-$result = $conn->query($sql);
+$stmt = $conn->prepare($sql);
 
-if ($result && $result->num_rows > 0) {
-    $response['status'] = 'success';
-    $response['posts'] = array();
+if ($stmt) {
+    // প্যারামিটার বাইন্ডিং
+    $stmt->bind_param("iii", $current_user_id, $limit, $offset);
+    $stmt->execute();
+    $result = $stmt->get_result();
 
-    while ($row = $result->fetch_assoc()) {
-        // ১. is_liked বুলিয়ান করা
-        $row['is_liked'] = ($row['is_liked'] > 0) ? true : false;
-        
-        // ২. সংখ্যা ইন্টিজারে নেওয়া
-        $row['like_count'] = intval($row['total_likes']);
-        $row['comment_count'] = intval($row['total_comments']);
-        
-        // ৩. ইমেজের পূর্ণাঙ্গ লিংক তৈরি করা (সবচেয়ে গুরুত্বপূর্ণ ফিক্স)
-        if (!empty($row['image_url'])) {
-            // যদি ডাটাবেসে শুধু নাম থাকে (যেমন: post.jpg), তবে সামনে পাথ যোগ হবে
-            if (!filter_var($row['image_url'], FILTER_VALIDATE_URL)) {
-                $row['image_url'] = $base_image_url . $row['image_url'];
+    if ($result->num_rows > 0) {
+        $response['status'] = 'success';
+        $response['posts'] = array();
+
+        while ($row = $result->fetch_assoc()) {
+            $row['is_liked'] = ($row['is_liked'] > 0);
+            $row['like_count'] = intval($row['total_likes']);
+            $row['comment_count'] = intval($row['total_comments']);
+            
+            unset($row['total_likes']);
+            unset($row['total_comments']);
+
+            // ইমেজ লিংক জেনারেশন
+            if (!empty($row['image_url'])) {
+                if (!filter_var($row['image_url'], FILTER_VALIDATE_URL)) {
+                    $row['image_url'] = $base_image_url . $row['image_url'];
+                }
+                
+                // ভিডিও নাকি ইমেজ চেক করার ফ্ল্যাগ
+                $ext = pathinfo($row['image_url'], PATHINFO_EXTENSION);
+                $video_exts = ['mp4', 'avi', 'mov', 'mkv', 'webm'];
+                $row['is_video'] = in_array(strtolower($ext), $video_exts);
+            } else {
+                $row['is_video'] = false;
             }
-        }
-        
-        // ৪. প্রোফাইল পিকচারের জন্যও একই কাজ করা উচিত (যদি সেখানেও শুধু নাম থাকে)
-        if (!empty($row['profile_picture_url'])) {
-             if (!filter_var($row['profile_picture_url'], FILTER_VALIDATE_URL)) {
-                $row['profile_picture_url'] = $base_image_url . $row['profile_picture_url'];
+            
+            // প্রোফাইল পিকচার লিংক
+            if (!empty($row['profile_picture_url'])) {
+                 if (!filter_var($row['profile_picture_url'], FILTER_VALIDATE_URL)) {
+                    $row['profile_picture_url'] = $base_image_url . $row['profile_picture_url'];
+                }
             }
+
+            array_push($response['posts'], $row);
         }
-        
-        array_push($response['posts'], $row);
+    } else {
+        $response['status'] = 'success'; 
+        $response['posts'] = []; 
+        $response['message'] = "No more posts found";
     }
+    $stmt->close();
 } else {
-    $response['status'] = 'success'; 
-    $response['posts'] = []; 
-    $response['message'] = "No posts found";
+    $response['status'] = 'error';
+    $response['message'] = 'Query failed: ' . $conn->error;
 }
 
 $conn->close();

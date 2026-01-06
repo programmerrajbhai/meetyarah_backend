@@ -1,17 +1,6 @@
 <?php
-// ✅ CORS Headers (Flutter Web এর জন্য এটি খুবই গুরুত্বপূর্ণ)
-header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
-header("Access-Control-Allow-Methods: POST, GET, OPTIONS");
-
-// ✅ Preflight Request Handle (ব্রাউজার প্রথমে OPTIONS রিকোয়েস্ট পাঠায়)
-if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
-    http_response_code(200);
-    exit();
-}
-
-include 'db_connect.php';
-header('Content-Type: application/json');
+// ১. ডাটাবেস কানেকশন (এখান থেকেই সব হেডার পাবে)
+require_once 'db_connect.php';
 
 $response = array();
 
@@ -36,8 +25,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
             // পাসওয়ার্ড ভেরিফিকেশন
             if (password_verify($password, $user['password_hash'])) {
-                // ✅ সঠিক পাসওয়ার্ড
-                $token = bin2hex(random_bytes(32));
+                // টোকেন জেনারেট
+                try {
+                    $token = bin2hex(random_bytes(32));
+                } catch (Exception $e) {
+                    $token = bin2hex(openssl_random_pseudo_bytes(32));
+                }
 
                 // টোকেন আপডেট করা
                 $stmt_token = $conn->prepare("UPDATE users SET auth_token = ? WHERE user_id = ?");
@@ -46,38 +39,33 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 $stmt_token->close();
 
                 http_response_code(200);
-                $response['status'] = 'success';
-                $response['message'] = 'Login successful.';
                 
-                // সেনসিটিভ ডাটা রিমুভ করা
+                // সেনসিটিভ ডাটা রিমুভ
                 unset($user['password_hash']);
                 
-                $response['user'] = $user;
-                $response['token'] = $token;
+                echo json_encode([
+                    'status' => 'success',
+                    'message' => 'Login successful.',
+                    'user' => $user,
+                    'token' => $token
+                ]);
             } else {
-                // ❌ ভুল পাসওয়ার্ড
                 http_response_code(401);
-                $response['status'] = 'error';
-                $response['message'] = 'Invalid username/email or password.';
+                echo json_encode(['status' => 'error', 'message' => 'Invalid password.']);
             }
         } else {
-            // ❌ ইউজার পাওয়া যায়নি
             http_response_code(401);
-            $response['status'] = 'error';
-            $response['message'] = 'Invalid username/email or password.';
+            echo json_encode(['status' => 'error', 'message' => 'User not found.']);
         }
         $stmt->close();
     } else {
         http_response_code(400);
-        $response['status'] = 'error';
-        $response['message'] = 'Login identifier and password are required.';
+        echo json_encode(['status' => 'error', 'message' => 'Email and password required.']);
     }
 } else {
     http_response_code(405);
-    $response['status'] = 'error';
-    $response['message'] = 'Invalid request method.';
+    echo json_encode(['status' => 'error', 'message' => 'Method Not Allowed']);
 }
 
 $conn->close();
-echo json_encode($response);
 ?>

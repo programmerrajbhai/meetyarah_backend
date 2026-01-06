@@ -1,22 +1,28 @@
 <?php
-header("Content-Type: application/json"); // রেসপন্স JSON ফরম্যাটে হবে
-header("Access-Control-Allow-Origin: *"); // সব ডোমেইন থেকে অ্যাক্সেস অ্যালাউ করা হলো
+// ১. CORS এবং ফরম্যাট হেডার (সব ফাইলের জন্য কমন)
+header("Access-Control-Allow-Origin: *");
+header("Content-Type: application/json; charset=UTF-8");
+header("Access-Control-Allow-Methods: POST, GET, OPTIONS, PUT, DELETE");
+header("Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With");
 
-// XAMPP ডাটাবেস সেটিংস (লোকালহোস্ট)
+// ২. প্রি-ফ্লাইট (OPTIONS) রিকোয়েস্ট হ্যান্ডেলিং
+// ব্রাউজার যখন ডাটা পাঠানোর আগে চেক করে, তখন এই ব্লকটি কাজ করে।
+if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
+    http_response_code(200);
+    exit();
+}
+
+// ৩. ডাটাবেস কানেকশন
 $servername = "localhost";
-$username = "root";      // XAMPP এর ডিফল্ট ইউজারনেম
-$password = "";          // XAMPP এ ডিফল্ট পাসওয়ার্ড ফাঁকা থাকে
-$dbname = "social_app"; // এখানে আপনার লোকাল ডাটাবেসের নাম দিন (উদাহরণ: my_database)
+$username = "root";
+$password = "";
+$dbname = "social_app";
 
-// ডাটাবেস কানেকশন তৈরি
 $conn = new mysqli($servername, $username, $password, $dbname);
 
-// কানেকশন চেক
 if ($conn->connect_error) {
     die(json_encode(['status' => 'error', 'message' => 'Database connection failed: ' . $conn->connect_error]));
 }
 
-// বাংলা বা অন্য ভাষার সাপোর্টের জন্য এনকোডিং সেট করা
-$conn->set_charset("utf8");
-
+$conn->set_charset("utf8mb4");
 ?>
