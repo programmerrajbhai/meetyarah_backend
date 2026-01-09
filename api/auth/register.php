@@ -1,26 +1,23 @@
 <?php
-// ✅ CORS Headers (Flutter Web এর জন্য এটি খুবই গুরুত্বপূর্ণ)
+
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
 header("Access-Control-Allow-Methods: POST, GET, OPTIONS");
 
 
-// ✅ Preflight Request Handle (ব্রাউজার প্রথমে OPTIONS রিকোয়েস্ট পাঠায়)
 if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
     http_response_code(200);
     exit();
 }
 
-// ডাটাবেস কানেকশন ফাইলটি যুক্ত করি
+
 include 'db_connect.php';
 // JSON রেসপন্স হেডার নিশ্চিত করা ভালো
 header('Content-Type: application/json');
 
 $response = array();
 
-// চেক করি যে সার্ভারে POST রিকোয়েস্ট এসেছে কি না
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-
     // অ্যাপ থেকে পাঠানো JSON ডেটা গ্রহণ করি
     $inputJSON = file_get_contents('php://input');
     $input = json_decode($inputJSON, TRUE); // JSON-কে PHP অ্যারে-তে রূপান্তর করি
