@@ -1,0 +1,5 @@
+RewriteEngine On
+
+# Authorization header forward fix (Apache/XAMPP)
+RewriteCond %{HTTP:Authorization} .
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
